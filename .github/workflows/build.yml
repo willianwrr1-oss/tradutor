@@ -3,6 +3,11 @@ name: Gerar .exe (Windows)
 on:
   workflow_dispatch:        # botão "Run workflow" na aba Actions
   push:
+    branches:
+      - main                # a cada commit na branch main, gera o .exe sozinho
+      - master
+    paths-ignore:
+      - "**.md"             # mudar só a documentação não dispara a compilação
     tags:
       - "v*"                # ao criar uma tag como v1.0.0, publica uma Release
 
