@@ -31,7 +31,8 @@ Copie `tradutor_config.exemplo.json` para `tradutor_config.json` (na mesma pasta
 | `model` | `tiny`, `base`, `small` (padrão), `medium`, `large-v3`. Maior = mais preciso e mais lento. Se atrasar, use `base`. |
 | `device` | `cpu` (padrão) ou `cuda` (placa NVIDIA). |
 | `limiar` | Sensibilidade à voz. Diminua (ex.: `0.004`) se falas baixas não forem captadas. |
-| `max_seg` | Duração máxima de cada trecho, em segundos. |
+| `max_seg` | Duração máxima de cada trecho, em segundos (padrão 8). Menor = menos atraso, mas frases mais cortadas. |
+| `silencio` | Pausa que fecha um trecho, em segundos (padrão 0.5). Menor = menos atraso. |
 | `log` | Arquivo onde salvar original e tradução. |
 | `google_api_key` | Chave do Google Cloud Translation (500 mil caracteres grátis por mês). É o jeito mais estável de traduzir. Opcional. |
 
@@ -59,7 +60,7 @@ Para `--offline`, instale também `argostranslate` e os pacotes de idioma (es/en
 ## Limitações
 
 - O Google gratuito pode responder "too many requests" em redes compartilhadas (empresa, VPN). O programa usa os serviços de reserva, mas eles são menos precisos e têm limites diários. Para uso contínuo, configure `google_api_key`.
-- O atraso de 2 a 5 segundos vem de esperar uma pausa na fala para fechar cada trecho.
+- O atraso de 2 a 6 segundos vem de esperar uma pausa na fala para fechar cada trecho, mais o tempo de reconhecimento e de tradução. A barra de status mostra quanto cada etapa levou no último trecho.
 - Música ou ruído de fundo podem gerar frases estranhas.
 - Alguns players com proteção de cópia entregam áudio mudo ao loopback.
 - Notebooks sem placa de vídeo dedicada podem não acompanhar o modelo `small` em tempo real. Use `base`.

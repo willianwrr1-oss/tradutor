@@ -2,7 +2,8 @@
   "model": "small",
   "device": "cpu",
   "limiar": 0.008,
-  "max_seg": 12.0,
+  "max_seg": 8.0,
+  "silencio": 0.5,
   "log": "transcricoes.txt",
   "google_api_key": ""
 }

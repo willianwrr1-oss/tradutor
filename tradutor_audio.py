@@ -136,11 +136,11 @@ class Captura(threading.Thread):
 # Segmentação por silêncio
 # --------------------------------------------------------------------------
 class Segmentador(threading.Thread):
-    def __init__(self, audio_q, seg_q, ui_q, parar, pausado, limiar, max_seg):
+    def __init__(self, audio_q, seg_q, ui_q, parar, pausado, limiar, max_seg, silencio):
         super().__init__(daemon=True)
         self.audio_q, self.seg_q, self.ui_q = audio_q, seg_q, ui_q
         self.parar, self.pausado = parar, pausado
-        self.limiar, self.max_seg = limiar, max_seg
+        self.limiar, self.max_seg, self.silencio = limiar, max_seg, silencio
 
     def emitir(self, buf, dur_fala):
         if dur_fala < 0.5:
@@ -181,7 +181,7 @@ class Segmentador(threading.Thread):
             else:
                 pre.append(chunk)
                 continue
-            if falando and (silencio >= 0.7 or total >= self.max_seg):
+            if falando and (silencio >= self.silencio or total >= self.max_seg):
                 self.emitir(buf, total - silencio)
                 buf, falando, silencio, total = [], False, 0.0, 0.0
                 pre.clear()
@@ -315,8 +315,9 @@ class Transcritor(threading.Thread):
             tipo = "float16" if self.args.device == "cuda" else "int8"
             pasta = Path(self.args.pasta_modelos)
             pasta.mkdir(parents=True, exist_ok=True)
+            threads = max(4, min(8, os.cpu_count() or 4)) if self.args.device == "cpu" else 0
             modelo = WhisperModel(self.args.model, device=self.args.device, compute_type=tipo,
-                                  download_root=str(pasta))
+                                  download_root=str(pasta), cpu_threads=threads)
             tradutor = criar_tradutor(self.args)
         except Exception as e:
             self.ui_q.put(("status", f"Erro ao iniciar: {e}"))
@@ -329,6 +330,7 @@ class Transcritor(threading.Thread):
             except queue.Empty:
                 continue
             try:
+                t0 = time.time()
                 lang = self.idioma_var["codigo"]
                 kw = dict(beam_size=1, vad_filter=True, condition_on_previous_text=False,
                           no_speech_threshold=0.6)
@@ -345,6 +347,7 @@ class Transcritor(threading.Thread):
                 texto = " ".join(s.text.strip() for s in segs).strip()
                 if not texto:
                     continue
+                t1 = time.time()
                 if lang == "pt":
                     trad = texto
                 else:
@@ -357,6 +360,8 @@ class Transcritor(threading.Thread):
                         trad = "[sem tradução no momento — veja a barra de status]"
                         self.ui_q.put(("status", f"Falha na tradução: {e}"))
                 self.ui_q.put(("linha", lang, texto, trad))
+                self.ui_q.put(("status", f"Último trecho: {len(audio) / TARGET_RATE:.1f}s de áudio · "
+                                         f"reconhecimento {t1 - t0:.1f}s · tradução {time.time() - t1:.1f}s"))
             except Exception as e:
                 self.ui_q.put(("status", f"Erro ao processar trecho: {e}"))
 
@@ -411,7 +416,7 @@ class App:
 
         Captura(self.audio_q, self.ui_q, self.parar).start()
         Segmentador(self.audio_q, self.seg_q, self.ui_q, self.parar, self.pausado,
-                    args.limiar, args.max_seg).start()
+                    args.limiar, args.max_seg, args.silencio).start()
         Transcritor(args, self.seg_q, self.ui_q, self.parar, self.idioma).start()
 
         self.root.protocol("WM_DELETE_WINDOW", self.fechar)
@@ -491,8 +496,10 @@ def main():
                     help="usa Argos Translate em vez do Google (só na versão Python)")
     ap.add_argument("--limiar", type=float, default=cfg.get("limiar", 0.008),
                     help="sensibilidade da detecção de fala (RMS)")
-    ap.add_argument("--max-seg", type=float, default=cfg.get("max_seg", 12.0),
-                    help="duração máxima de cada trecho, em segundos")
+    ap.add_argument("--max-seg", type=float, default=cfg.get("max_seg", 8.0),
+                    help="duração máxima de cada trecho, em segundos (menor = menos atraso)")
+    ap.add_argument("--silencio", type=float, default=cfg.get("silencio", 0.5),
+                    help="pausa, em segundos, que fecha um trecho (menor = menos atraso)")
     ap.add_argument("--log", default=cfg.get("log"), help="arquivo para salvar original e tradução")
     ap.add_argument("--google-api-key", default=cfg.get("google_api_key"),
                     help="chave do Google Cloud Translation (500 mil caracteres grátis por mês)")
