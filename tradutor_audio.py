@@ -190,14 +190,115 @@ class Segmentador(threading.Thread):
 # --------------------------------------------------------------------------
 # Transcrição + tradução
 # --------------------------------------------------------------------------
-def criar_tradutor(offline):
-    if offline:
+class Tradutor:
+    """Tenta vários serviços de tradução em sequência.
+
+    O endpoint gratuito do Google (usado pelo deep-translator) bloqueia por IP
+    quando a rede é compartilhada (empresa, VPN, CGNAT) e responde "too many
+    requests" mesmo com poucos pedidos. Por isso há uma cadeia de reserva e,
+    quando um serviço falha, ele fica em "descanso" por um tempo antes de ser
+    tentado de novo.
+    """
+
+    DESCANSO = 90  # segundos sem tentar um serviço que acabou de falhar
+    LINGVA = ("https://lingva.ml", "https://lingva.garudalinux.org", "https://translate.plausibility.cloud")
+
+    def __init__(self, offline=False, chave_google=None):
+        self.cache = {}
+        self.descanso_ate = {}
+        self.ultimo = None
+        self.chave_google = chave_google or os.environ.get("GOOGLE_TRANSLATE_API_KEY")
+        if offline:
+            self.cadeia = [("Argos (offline)", self._argos)]
+        else:
+            self.cadeia = []
+            if self.chave_google:
+                self.cadeia.append(("Google Cloud", self._google_cloud))
+            self.cadeia += [("Google", self._google_gratis), ("Lingva", self._lingva),
+                            ("MyMemory", self._mymemory)]
+
+    # -- serviços -----------------------------------------------------------
+    def _google_cloud(self, texto, src):
+        import requests
+
+        r = requests.post("https://translation.googleapis.com/language/translate/v2",
+                          data={"q": texto, "source": src, "target": "pt", "format": "text",
+                                "key": self.chave_google}, timeout=10)
+        r.raise_for_status()
+        return r.json()["data"]["translations"][0]["translatedText"]
+
+    def _google_gratis(self, texto, src):
+        from deep_translator import GoogleTranslator
+
+        return GoogleTranslator(source=src, target="pt").translate(texto)
+
+    def _lingva(self, texto, src):
+        import requests
+        from urllib.parse import quote
+
+        ultimo_erro = None
+        for base in self.LINGVA:
+            try:
+                r = requests.get(f"{base}/api/v1/{src}/pt/{quote(texto, safe='')}", timeout=8)
+                r.raise_for_status()
+                return r.json()["translation"]
+            except Exception as e:
+                ultimo_erro = e
+        raise RuntimeError(f"instâncias indisponíveis ({ultimo_erro})")
+
+    def _mymemory(self, texto, src):
+        import re
+        import requests
+
+        pedacos, atual = [], ""
+        for frase in re.split(r"(?<=[.!?。！？])\s*", texto):
+            if len(atual) + len(frase) > 400 and atual:
+                pedacos.append(atual)
+                atual = ""
+            atual += frase + " "
+        if atual.strip():
+            pedacos.append(atual)
+        saida = []
+        for p in pedacos:
+            r = requests.get("https://api.mymemory.translated.net/get",
+                             params={"q": p.strip()[:480], "langpair": f"{src}|pt-BR"}, timeout=10)
+            r.raise_for_status()
+            dados = r.json()
+            if int(dados.get("responseStatus", 200)) != 200:
+                raise RuntimeError(dados.get("responseDetails", "erro"))
+            saida.append(dados["responseData"]["translatedText"])
+        return " ".join(saida)
+
+    def _argos(self, texto, src):
         import argostranslate.translate as at
 
-        return lambda texto, src: at.translate(texto, src, "pt")
-    from deep_translator import GoogleTranslator
+        return at.translate(texto, src, "pt")
 
-    return lambda texto, src: GoogleTranslator(source=src, target="pt").translate(texto)
+    # -- interface ----------------------------------------------------------
+    def traduzir(self, texto, src):
+        chave = (src, texto)
+        if chave in self.cache:
+            return self.cache[chave]
+        agora = time.time()
+        erros = []
+        for nome, fn in self.cadeia:
+            if self.descanso_ate.get(nome, 0) > agora:
+                continue
+            try:
+                resultado = fn(texto, src)
+                if not resultado:
+                    raise RuntimeError("resposta vazia")
+                self.ultimo = nome
+                self.cache[chave] = resultado
+                return resultado
+            except Exception as e:
+                self.descanso_ate[nome] = time.time() + self.DESCANSO
+                erros.append(f"{nome}: {str(e)[:60]}")
+        raise RuntimeError(" | ".join(erros) or "todos os serviços estão em descanso")
+
+
+def criar_tradutor(args):
+    return Tradutor(offline=args.offline, chave_google=args.google_api_key)
 
 
 class Transcritor(threading.Thread):
@@ -216,7 +317,7 @@ class Transcritor(threading.Thread):
             pasta.mkdir(parents=True, exist_ok=True)
             modelo = WhisperModel(self.args.model, device=self.args.device, compute_type=tipo,
                                   download_root=str(pasta))
-            traduzir = criar_tradutor(self.args.offline)
+            tradutor = criar_tradutor(self.args)
         except Exception as e:
             self.ui_q.put(("status", f"Erro ao iniciar: {e}"))
             return
@@ -248,9 +349,13 @@ class Transcritor(threading.Thread):
                     trad = texto
                 else:
                     try:
-                        trad = traduzir(texto, lang)
+                        antes = tradutor.ultimo
+                        trad = tradutor.traduzir(texto, lang)
+                        if tradutor.ultimo != antes:
+                            self.ui_q.put(("status", f"Tradução via {tradutor.ultimo}"))
                     except Exception as e:
-                        trad = f"[falha na tradução: {e}]"
+                        trad = "[sem tradução no momento — veja a barra de status]"
+                        self.ui_q.put(("status", f"Falha na tradução: {e}"))
                 self.ui_q.put(("linha", lang, texto, trad))
             except Exception as e:
                 self.ui_q.put(("status", f"Erro ao processar trecho: {e}"))
@@ -389,6 +494,8 @@ def main():
     ap.add_argument("--max-seg", type=float, default=cfg.get("max_seg", 12.0),
                     help="duração máxima de cada trecho, em segundos")
     ap.add_argument("--log", default=cfg.get("log"), help="arquivo para salvar original e tradução")
+    ap.add_argument("--google-api-key", default=cfg.get("google_api_key"),
+                    help="chave do Google Cloud Translation (500 mil caracteres grátis por mês)")
     ap.add_argument("--pasta-modelos", default=cfg.get("pasta_modelos", str(PASTA_APP / "modelos")),
                     help="onde guardar os modelos baixados (padrão: pasta 'modelos' ao lado do programa)")
     args = ap.parse_args()

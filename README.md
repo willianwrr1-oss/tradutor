@@ -7,7 +7,7 @@ automática do idioma.
 
 - Reconhecimento de fala: [faster-whisper](https://github.com/SYSTRAN/faster-whisper), roda no próprio computador, sem custo.
 - Captura: WASAPI loopback ([PyAudioWPatch](https://github.com/s0d3s/PyAudioWPatch)). Acompanha a troca do dispositivo de saída (plugar ou tirar o fone).
-- Tradução: Google Translate (via `deep-translator`, precisa de internet). Na versão Python também há a opção offline `--offline` (Argos Translate).
+- Tradução: tenta em sequência Google Cloud (se houver chave), Google gratuito, Lingva e MyMemory, e troca sozinho quando um deles falha. Precisa de internet. Na versão Python também há a opção offline `--offline` (Argos Translate).
 
 Funciona em qualquer notebook ou PC com Windows 10/11, de qualquer marca.
 
@@ -33,6 +33,7 @@ Copie `tradutor_config.exemplo.json` para `tradutor_config.json` (na mesma pasta
 | `limiar` | Sensibilidade à voz. Diminua (ex.: `0.004`) se falas baixas não forem captadas. |
 | `max_seg` | Duração máxima de cada trecho, em segundos. |
 | `log` | Arquivo onde salvar original e tradução. |
+| `google_api_key` | Chave do Google Cloud Translation (500 mil caracteres grátis por mês). É o jeito mais estável de traduzir. Opcional. |
 
 Se algo travar na abertura, o motivo fica registrado em `erro.log`.
 
@@ -57,6 +58,7 @@ Para `--offline`, instale também `argostranslate` e os pacotes de idioma (es/en
 
 ## Limitações
 
+- O Google gratuito pode responder "too many requests" em redes compartilhadas (empresa, VPN). O programa usa os serviços de reserva, mas eles são menos precisos e têm limites diários. Para uso contínuo, configure `google_api_key`.
 - O atraso de 2 a 5 segundos vem de esperar uma pausa na fala para fechar cada trecho.
 - Música ou ruído de fundo podem gerar frases estranhas.
 - Alguns players com proteção de cópia entregam áudio mudo ao loopback.
