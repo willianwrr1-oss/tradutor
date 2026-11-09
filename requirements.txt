@@ -1,0 +1,6 @@
+PyAudioWPatch
+faster-whisper
+numpy
+deep-translator
+# Somente se for usar --offline:
+# argostranslate

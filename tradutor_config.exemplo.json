@@ -1,0 +1,7 @@
+{
+  "model": "small",
+  "device": "cpu",
+  "limiar": 0.008,
+  "max_seg": 12.0,
+  "log": "transcricoes.txt"
+}
