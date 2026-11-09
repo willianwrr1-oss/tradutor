@@ -85,7 +85,7 @@ class App:
         self.root.title("Tradutor de áudio → Português (Brasil)")
         self.root.geometry("1000x660+80+50")
         self.root.minsize(900, 420)
-        self.root.attributes("-topmost", True)
+        self.root.attributes("-topmost", bool(cfg.get("sempre_no_topo", True)))
         aplicar_tema(self.root)
 
         self.traducao = GerenciadorTraducao(cfg)
@@ -150,6 +150,9 @@ class App:
         self.var_original = tk.BooleanVar(value=self.cfg["mostrar_original"])
         ttk.Checkbutton(self.barra2, text="Mostrar original", variable=self.var_original,
                         command=self.mudou_original).pack(side="left")
+        self.var_topo = tk.BooleanVar(value=bool(self.cfg.get("sempre_no_topo", True)))
+        ttk.Checkbutton(self.barra2, text="Sempre no topo", variable=self.var_topo,
+                        command=self.mudou_topo).pack(side="left", padx=(18, 0))
         acoes = ttk.Frame(self.barra2)
         acoes.pack(side="right")
         ttk.Button(acoes, text="Legenda", command=self.alternar_legenda).pack(side="right", padx=(8, 0))
@@ -314,6 +317,11 @@ class App:
     def mudou_original(self):
         self.cfg["mostrar_original"] = self.var_original.get()
         self.renderizar()
+        self.salvar_silencioso()
+
+    def mudou_topo(self):
+        self.cfg["sempre_no_topo"] = self.var_topo.get()
+        self.root.attributes("-topmost", self.var_topo.get())
         self.salvar_silencioso()
 
     def alternar_legenda(self):

@@ -29,6 +29,7 @@ programa não tem assinatura digital. Clique em *Mais informações → Executar
 | Tradução | "Automático" tenta os serviços em sequência. Ou fixe um serviço específico. |
 | Pausar / Retomar | Interrompe a captura. |
 | Mostrar original | Exibe o texto reconhecido acima da tradução. |
+| Sempre no topo | Mantém a janela acima das outras (ligado por padrão). |
 | A− / A+ | Tamanho da letra. |
 | Legenda | Modo compacto e levemente transparente, só com a tradução, ideal sobre vídeos. Para sair: duplo clique no texto ou tecla Esc. |
 | Copiar / Exportar | Copia ou salva em `.txt` tudo o que foi traduzido na sessão. |

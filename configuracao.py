@@ -85,6 +85,7 @@ PADRAO = {
     "offline": False,
     "tamanho_fonte": 17,
     "mostrar_original": True,
+    "sempre_no_topo": True,
     "idioma_origem": "Automático",
     "fala_ativa": "whisper_local",
     "traducao_ativa": "auto",
