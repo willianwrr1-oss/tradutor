@@ -1,6 +1,7 @@
 PyAudioWPatch
 faster-whisper
 numpy
+requests
 deep-translator
 # Somente se for usar --offline:
 # argostranslate

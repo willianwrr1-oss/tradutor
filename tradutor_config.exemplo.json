@@ -4,6 +4,5 @@
   "limiar": 0.008,
   "max_seg": 8.0,
   "silencio": 0.5,
-  "log": "transcricoes.txt",
-  "google_api_key": ""
+  "log": "transcricoes.txt"
 }
