@@ -65,6 +65,16 @@ quiser que ele nunca seja substituído, desmarque "Reserva automática" em
 > está no `.gitignore`). Se a pasta estiver sincronizada (OneDrive, por exemplo), a
 > chave também será sincronizada.
 
+## Reuniões do Teams
+
+O Teams tem sua própria configuração de alto-falante e pode tocar em um dispositivo
+diferente do padrão do Windows (por exemplo, o fone Bluetooth muda para o perfil de
+chamada "Mãos-livres" quando a reunião começa). Por isso o programa vem no modo
+**Automático**: ele escuta todas as saídas de áudio ativas e segue a que estiver com
+som, sem você precisar configurar nada. Em *Configurações > Áudio e desempenho >
+Dispositivo de áudio* dá para fixar uma saída específica ou voltar ao padrão do Windows.
+Se duas saídas tocarem ao mesmo tempo (um vídeo e a reunião), vale a mais alta.
+
 ## Desempenho e atraso
 
 O atraso de 2 a 6 segundos vem de três etapas: esperar uma pausa na fala para fechar

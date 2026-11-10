@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import configuracao as C
-from captura import Captura, Segmentador
+from captura import AUTO, PADRAO_WIN, Captura, Segmentador, nomes_loopback
 from processamento import Transcritor
 from provedores import GerenciadorFala, GerenciadorTraducao, testar_provedor
 
@@ -95,7 +95,7 @@ class App:
         self.atualizar_combos()
         self.configurar_tags()
 
-        self.captura = Captura(self.audio_q, self.ui_q, self.parar)
+        self.captura = Captura(self.audio_q, self.ui_q, self.parar, cfg)
         self.segmentador = Segmentador(self.audio_q, self.seg_q, self.ui_q, self.parar, self.pausado,
                                        cfg["limiar"], cfg["max_seg"], cfg["silencio"])
         self.transcritor = Transcritor(self.fala, self.traducao, self.seg_q, self.ui_q, self.parar, self.idioma)
@@ -577,31 +577,45 @@ class JanelaConfig(tk.Toplevel):
         self.v_log = tk.StringVar(value=self.cfg.get("log") or "")
         self.v_reserva = tk.BooleanVar(value=self.cfg["reserva_gratis"])
 
+        self.rot_auto = "Automático (o que estiver tocando)"
+        self.rot_padrao = "Padrão do Windows"
+        try:
+            nomes = nomes_loopback()
+        except Exception:
+            nomes = []
+        atual = self.cfg.get("dispositivo_audio") or AUTO
+        self.v_disp = tk.StringVar(value=self.rot_auto if atual == AUTO else
+                                   self.rot_padrao if atual == PADRAO_WIN else atual)
+
         def linha(i, rotulo, widget, dica=""):
             ttk.Label(aba, text=rotulo).grid(row=i * 2, column=0, sticky="w", pady=(10, 0), padx=(0, 20))
             widget.grid(row=i * 2, column=1, sticky="w", pady=(10, 0))
             if dica:
                 ttk.Label(aba, text=dica, style="Mudo.TLabel").grid(row=i * 2 + 1, column=1, sticky="w")
 
-        linha(0, "Modelo do Whisper local",
+        linha(0, "Dispositivo de áudio",
+              ttk.Combobox(aba, textvariable=self.v_disp, state="readonly", width=44,
+                           values=[self.rot_auto, self.rot_padrao] + nomes),
+              "Automático acompanha o Teams mesmo que ele use outro fone ou alto-falante.")
+        linha(1, "Modelo do Whisper local",
               ttk.Combobox(aba, textvariable=self.v_model, state="readonly", width=14,
                            values=["tiny", "base", "small", "medium", "large-v3"]),
               "Maior = mais preciso e mais lento. Vale depois de reabrir o programa.")
-        linha(1, "Processador", ttk.Combobox(aba, textvariable=self.v_device, state="readonly", width=14,
+        linha(2, "Processador", ttk.Combobox(aba, textvariable=self.v_device, state="readonly", width=14,
                                              values=["cpu", "cuda"]),
               "cuda exige placa NVIDIA. Vale depois de reabrir o programa.")
-        linha(2, "Sensibilidade à voz", ttk.Spinbox(aba, textvariable=self.v_limiar, from_=0.001, to=0.1,
+        linha(3, "Sensibilidade à voz", ttk.Spinbox(aba, textvariable=self.v_limiar, from_=0.001, to=0.1,
                                                     increment=0.001, width=10, format="%.3f"),
               "Diminua se falas baixas não forem captadas.")
-        linha(3, "Duração máxima do trecho (s)", ttk.Spinbox(aba, textvariable=self.v_max, from_=3, to=20,
+        linha(4, "Duração máxima do trecho (s)", ttk.Spinbox(aba, textvariable=self.v_max, from_=3, to=20,
                                                              increment=0.5, width=10, format="%.1f"),
               "Menor = menos atraso, mas frases mais cortadas.")
-        linha(4, "Pausa que fecha um trecho (s)", ttk.Spinbox(aba, textvariable=self.v_sil, from_=0.2, to=2,
+        linha(5, "Pausa que fecha um trecho (s)", ttk.Spinbox(aba, textvariable=self.v_sil, from_=0.2, to=2,
                                                               increment=0.1, width=10, format="%.1f"),
               "Menor = menos atraso.")
-        linha(5, "Arquivo de registro", ttk.Entry(aba, textvariable=self.v_log, width=44),
+        linha(6, "Arquivo de registro", ttk.Entry(aba, textvariable=self.v_log, width=44),
               "Opcional. Ex.: transcricoes.txt (guarda original e tradução).")
-        linha(6, "Reserva automática", ttk.Checkbutton(
+        linha(7, "Reserva automática", ttk.Checkbutton(
             aba, text="Se o serviço escolhido falhar, usar os gratuitos", variable=self.v_reserva))
 
     def salvar(self):
@@ -611,7 +625,9 @@ class JanelaConfig(tk.Toplevel):
         except ValueError:
             messagebox.showerror("Valor inválido", "Use números nos campos de sensibilidade e duração.", parent=self)
             return
-        self.cfg.update(model=self.v_model.get(), device=self.v_device.get(), limiar=limiar, max_seg=maxs,
+        disp = self.v_disp.get()
+        disp = AUTO if disp == self.rot_auto else PADRAO_WIN if disp == self.rot_padrao else disp
+        self.cfg.update(dispositivo_audio=disp, model=self.v_model.get(), device=self.v_device.get(), limiar=limiar, max_seg=maxs,
                         silencio=sil, log=self.v_log.get().strip() or None, reserva_gratis=self.v_reserva.get())
         self.app.aplicar_config(self.cfg)
         self.destroy()

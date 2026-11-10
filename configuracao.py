@@ -77,6 +77,7 @@ BUILTIN_FALA = [{"id": "whisper_local", "nome": "Whisper local", "tipo": "whispe
 PADRAO = {
     "model": "small",
     "device": "cpu",
+    "dispositivo_audio": "auto",
     "limiar": 0.008,
     "max_seg": 8.0,
     "silencio": 0.5,
