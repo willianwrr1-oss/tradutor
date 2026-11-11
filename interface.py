@@ -417,6 +417,19 @@ class App:
 # ---------------------------------------------------------------------------
 # Janela de configurações
 # ---------------------------------------------------------------------------
+def ajustar_janela(win, larg_min, alt_min, so_crescer=False):
+    """Dimensiona a janela pelo conteúdo (que cresce com a escala do Windows), sem passar da tela."""
+    try:
+        win.update_idletasks()
+        if so_crescer:
+            larg_min, alt_min = max(larg_min, win.winfo_width()), max(alt_min, win.winfo_height())
+        w = min(max(larg_min, win.winfo_reqwidth()), win.winfo_screenwidth() - 80)
+        h = min(max(alt_min, win.winfo_reqheight()), win.winfo_screenheight() - 120)
+        win.geometry(f"{w}x{h}")
+    except Exception:
+        pass
+
+
 def rodar_em_thread(janela, funcao, depois):
     """Executa `funcao` fora da interface e chama `depois(ok, valor)` na interface."""
     fila = queue.Queue()
@@ -451,8 +464,14 @@ class JanelaConfig(tk.Toplevel):
         self.transient(app.root)
         self.attributes("-topmost", True)
 
+        # O rodapé é empacotado primeiro para os botões nunca ficarem cortados
+        rod = ttk.Frame(self)
+        rod.pack(side="bottom", fill="x", padx=16, pady=(0, 16))
+        ttk.Button(rod, text="Salvar", style="Acento.TButton", command=self.salvar).pack(side="right")
+        ttk.Button(rod, text="Cancelar", command=self.destroy).pack(side="right", padx=(0, 8))
+
         nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True, padx=16, pady=(16, 8))
+        nb.pack(side="top", fill="both", expand=True, padx=16, pady=(16, 8))
         aba1 = ttk.Frame(nb, padding=16)
         aba2 = ttk.Frame(nb, padding=16)
         nb.add(aba1, text="Provedores de API")
@@ -460,10 +479,7 @@ class JanelaConfig(tk.Toplevel):
         self.montar_provedores(aba1)
         self.montar_desempenho(aba2)
 
-        rod = ttk.Frame(self)
-        rod.pack(fill="x", padx=16, pady=(0, 16))
-        ttk.Button(rod, text="Salvar", style="Acento.TButton", command=self.salvar).pack(side="right")
-        ttk.Button(rod, text="Cancelar", command=self.destroy).pack(side="right", padx=(0, 8))
+        ajustar_janela(self, 820, 560)
         self.wait_visibility()
         self.grab_set()
 
@@ -682,6 +698,7 @@ class DialogoProvedor(tk.Toplevel):
         ttk.Button(rod, text="Cancelar", command=self.destroy).pack(side="right", padx=(0, 8))
 
         self.filtrar_tipos(inicial=provedor)
+        ajustar_janela(self, 560, 460)
         self.wait_visibility()
         self.grab_set()
 
@@ -730,6 +747,7 @@ class DialogoProvedor(tk.Toplevel):
             else:
                 ttk.Entry(self.quadro, textvariable=self.vars[campo]).grid(row=i, column=1, sticky="ew", pady=4)
         self.dica.config(text=info["dica"])
+        ajustar_janela(self, 560, 460, so_crescer=True)
 
     def confirmar(self):
         info = C.TIPOS[self.tipo_atual]
