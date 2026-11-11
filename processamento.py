@@ -35,6 +35,8 @@ class Transcritor(threading.Thread):
                 self.ui_q.put(("detalhe", f"Falha no reconhecimento da fala: {str(e)[:200]}"))
                 continue
             if not texto or lang is None:
+                self.ui_q.put(("detalhe", f"Trecho de {len(audio) / TARGET_RATE:.1f}s sem fala reconhecida "
+                                          "(música, ruído ou volume baixo)"))
                 continue
             t1 = time.time()
             trad, prov_tr = None, ""

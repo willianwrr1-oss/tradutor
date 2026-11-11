@@ -212,6 +212,8 @@ class App:
             while True:
                 msg = self.ui_q.get_nowait()
                 if msg[0] == "estado":
+                    if msg[1] == "ok" and msg[2].startswith("Capturando"):
+                        self.texto_captura = msg[2]
                     if not self.pausado.is_set():
                         self.definir_estado(msg[1], msg[2])
                 elif msg[0] == "detalhe":
@@ -276,7 +278,7 @@ class App:
         if self.pausado.is_set():
             self.pausado.clear()
             self.btn_pausa.config(text="Pausar")
-            self.definir_estado("ok", "Capturando")
+            self.definir_estado("ok", getattr(self, "texto_captura", "Capturando"))
         else:
             self.pausado.set()
             self.btn_pausa.config(text="Retomar")

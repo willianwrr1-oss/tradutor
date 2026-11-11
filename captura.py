@@ -14,6 +14,11 @@ AUTO = "auto"            # escuta todas as saídas e usa a que estiver com som
 PADRAO_WIN = "padrao"    # só a saída padrão do Windows
 
 
+def nome_curto(nome, limite=34):
+    nome = nome.replace(" [Loopback]", "")
+    return nome if len(nome) <= limite else nome[: limite - 1] + "…"
+
+
 def listar_loopbacks(p):
     return list(p.get_loopback_device_info_generator())
 
@@ -130,6 +135,7 @@ class Captura(threading.Thread):
         if melhor != self._ativo and recentes[melhor] > max(0.003, atual * 2):
             self._ativo = melhor
             self.ui_q.put(("detalhe", f"Áudio detectado em: {nomes.get(melhor, melhor)}"))
+            self.ui_q.put(("estado", "ok", "Capturando · " + nome_curto(nomes.get(melhor, ""))))
 
     def run(self):
         while not self.parar.is_set():
@@ -167,7 +173,7 @@ class Captura(threading.Thread):
                 else:
                     self.ui_q.put(("detalhe", f"Monitorando {len(streams)} saídas de áudio; "
                                               "seguindo a que estiver tocando"))
-                self.ui_q.put(("estado", "ok", "Capturando"))
+                self.ui_q.put(("estado", "ok", "Capturando · " + nome_curto(nomes[self._ativo])))
                 inicial = self._assinatura()
                 ultimo = time.time()
                 while not self.parar.is_set():
