@@ -68,8 +68,28 @@ def nomes_loopback():
         p.terminate()
 
 
-def para_16k_mono(raw, canais, taxa):
-    x = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+def formatos_possiveis():
+    """Formatos que o loopback pode exigir; cada saída do Windows usa o seu (16 bits, 24 bits, 32 bits ou float)."""
+    nomes = [("paInt16", "int16"), ("paFloat32", "float32"), ("paInt32", "int32"), ("paInt24", "int24")]
+    return [(getattr(pyaudio, a), r) for a, r in nomes if hasattr(pyaudio, a)]
+
+
+def decodificar(raw, fmt):
+    if fmt == getattr(pyaudio, "paFloat32", None):
+        return np.frombuffer(raw, dtype=np.float32)
+    if fmt == getattr(pyaudio, "paInt32", None):
+        return np.frombuffer(raw, dtype=np.int32).astype(np.float32) / 2147483648.0
+    if fmt == getattr(pyaudio, "paInt24", None):
+        b = np.frombuffer(raw, dtype=np.uint8)
+        b = b[: len(b) // 3 * 3].reshape(-1, 3).astype(np.int32)
+        v = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
+        v = np.where(v >= 0x800000, v - 0x1000000, v)
+        return v.astype(np.float32) / 8388608.0
+    return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+
+
+def para_16k_mono(raw, canais, taxa, fmt=None):
+    x = decodificar(raw, fmt if fmt is not None else pyaudio.paInt16)
     if canais > 1:
         x = x[: len(x) // canais * canais].reshape(-1, canais).mean(axis=1)
     if taxa == TARGET_RATE:
@@ -123,10 +143,10 @@ class Captura(threading.Thread):
         finally:
             p.terminate()
 
-    def _callback(self, idx, canais, taxa):
+    def _callback(self, idx, canais, taxa, fmt):
         def cb(dados, frames, tempo, status):
             try:
-                x = para_16k_mono(dados, canais, taxa)
+                x = para_16k_mono(dados, canais, taxa, fmt)
                 rms = float(np.sqrt(np.mean(x ** 2))) if len(x) else 0.0
                 with self._trava:
                     ant = self._niveis.get(idx, (0.0, 0))[0]
@@ -161,12 +181,18 @@ class Captura(threading.Thread):
         """Abre o loopback de um dispositivo e guarda o stream. Tudo vai para o captura.log."""
         canais, taxa = int(d["maxInputChannels"]), int(d["defaultSampleRate"])
         registrar(f"abrindo [{d['index']}] {d['name']}")
-        try:
-            s = p.open(format=pyaudio.paInt16, channels=canais, rate=taxa, input=True,
-                       input_device_index=d["index"], frames_per_buffer=2048,
-                       stream_callback=self._callback(d["index"], canais, taxa))
-        except Exception as e:
-            registrar(f"falha ao abrir {d['name']}: {e}")
+        s, erros = None, []
+        for fmt, rotulo in formatos_possiveis():
+            try:
+                s = p.open(format=fmt, channels=canais, rate=taxa, input=True,
+                           input_device_index=d["index"], frames_per_buffer=2048,
+                           stream_callback=self._callback(d["index"], canais, taxa, fmt))
+                registrar(f"formato {rotulo} aceito por [{d['index']}]")
+                break
+            except Exception as e:
+                erros.append(f"{rotulo}: {e}")
+        if s is None:
+            registrar(f"falha ao abrir {d['name']} em todos os formatos -> " + " | ".join(erros))
             return False
         with self._trava_streams:
             if sessao.is_set():  # a sessão terminou enquanto este abria
