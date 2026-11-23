@@ -9,6 +9,22 @@ import pyaudiowpatch as pyaudio
 
 TARGET_RATE = 16000
 
+_trava_log = threading.Lock()
+
+
+def registrar(msg):
+    """Anota em captura.log (ao lado do programa) o que a captura está fazendo, para diagnóstico."""
+    try:
+        import configuracao as C
+        arq = C.PASTA_APP / "captura.log"
+        with _trava_log:
+            if arq.exists() and arq.stat().st_size > 200_000:
+                arq.write_text("", encoding="utf-8")
+            with open(arq, "a", encoding="utf-8") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+    except Exception:
+        pass
+
 # Valores possíveis de cfg["dispositivo_audio"]; qualquer outro texto é o nome de um dispositivo.
 AUTO = "auto"            # escuta todas as saídas e usa a que estiver com som
 PADRAO_WIN = "padrao"    # só a saída padrão do Windows
@@ -134,6 +150,7 @@ class Captura(threading.Thread):
         atual = recentes.get(self._ativo, 0.0)
         if melhor != self._ativo and recentes[melhor] > max(0.003, atual * 2):
             self._ativo = melhor
+            registrar(f"áudio detectado em: {nomes.get(melhor, melhor)}")
             self.ui_q.put(("detalhe", f"Áudio detectado em: {nomes.get(melhor, melhor)}"))
             self.ui_q.put(("estado", "ok", "Capturando · " + nome_curto(nomes.get(melhor, ""))))
 
@@ -151,6 +168,9 @@ class Captura(threading.Thread):
                     padrao_idx = achar_loopback(p)["index"]
                 except Exception:
                     padrao_idx = devs[0]["index"]
+                registrar(f"modo={self._modo()}; saídas encontradas: " +
+                          " | ".join(f"[{d['index']}] {d['name']} ({int(d['defaultSampleRate'])} Hz, "
+                                     f"{int(d['maxInputChannels'])} canais)" for d in devs))
                 indices = [d["index"] for d in devs]
                 self._ativo = padrao_idx if padrao_idx in indices else indices[0]
                 self._niveis.clear()
@@ -166,6 +186,7 @@ class Captura(threading.Thread):
                                                            int(d["defaultSampleRate"]))))
                     except Exception as e:
                         erros.append(f"{d['name']}: {e}")
+                        registrar(f"falha ao abrir {d['name']}: {e}")
                 if not streams:
                     raise RuntimeError("Não foi possível abrir nenhuma saída de áudio. " + "; ".join(erros))
                 if len(devs) == 1:
@@ -175,22 +196,35 @@ class Captura(threading.Thread):
                                               "seguindo a que estiver tocando"))
                 self.ui_q.put(("estado", "ok", "Capturando · " + nome_curto(nomes[self._ativo])))
                 inicial = self._assinatura()
-                ultimo = time.time()
+                ultimo = ultimo_resumo = time.time()
+                mudancas = 0
                 while not self.parar.is_set():
                     time.sleep(0.25)
                     if len(streams) > 1:
                         self._escolher_ativo(nomes)
-                    if time.time() - ultimo >= 1.5:
-                        ultimo = time.time()
+                    agora = time.time()
+                    if agora - ultimo_resumo >= 10:
+                        ultimo_resumo = agora
+                        with self._trava:
+                            resumo = ", ".join(f"{nomes.get(i, i)}={n:.4f}" if agora - t < 2 else
+                                               f"{nomes.get(i, i)}=sem sinal"
+                                               for i, (n, t) in self._niveis.items()) or "nenhum sinal recebido"
+                        registrar("níveis: " + resumo)
+                    if agora - ultimo >= 1.5:
+                        ultimo = agora
                         try:
                             mudou = self._assinatura() != inicial
                         except Exception:
                             mudou = True
-                        if mudou:
+                        # só reconecta se a mudança se mantiver em duas verificações seguidas
+                        mudancas = mudancas + 1 if mudou else 0
+                        if mudancas >= 2:
+                            registrar("conjunto de saídas mudou, reconectando")
                             self.ui_q.put(("estado", "carregando", "Reconectando"))
                             self.ui_q.put(("detalhe", "As saídas de áudio mudaram, reconectando..."))
                             break
             except Exception as e:
+                registrar(f"erro na captura: {e}")
                 self.ui_q.put(("estado", "erro", "Sem captura"))
                 self.ui_q.put(("detalhe", f"Erro na captura de áudio: {e}"))
                 time.sleep(2)
