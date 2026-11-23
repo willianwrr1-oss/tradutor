@@ -80,6 +80,8 @@ class App:
         self.historico = []
         self.modo_legenda = False
         self._nivel = 0.0
+        self.estado_captura = ("carregando", "Iniciando")
+        self.estado_modelo = None
 
         self.root = tk.Tk()
         self.root.title("Tradutor de áudio → Português (Brasil)")
@@ -211,11 +213,15 @@ class App:
         try:
             while True:
                 msg = self.ui_q.get_nowait()
-                if msg[0] == "estado":
-                    if msg[1] == "ok" and msg[2].startswith("Capturando"):
-                        self.texto_captura = msg[2]
+                if msg[0] in ("estado", "modelo"):
+                    if msg[0] == "estado":
+                        self.estado_captura = (msg[1], msg[2])
+                        if msg[1] == "ok":
+                            self.texto_captura = msg[2]
+                    else:
+                        self.estado_modelo = (msg[1], msg[2]) if msg[1] else None
                     if not self.pausado.is_set():
-                        self.definir_estado(msg[1], msg[2])
+                        self.definir_estado(*(self.estado_modelo or self.estado_captura))
                 elif msg[0] == "detalhe":
                     self.detalhe.config(text=msg[1])
                 elif msg[0] == "linha":
@@ -278,7 +284,7 @@ class App:
         if self.pausado.is_set():
             self.pausado.clear()
             self.btn_pausa.config(text="Pausar")
-            self.definir_estado("ok", getattr(self, "texto_captura", "Capturando"))
+            self.definir_estado(*(self.estado_modelo or self.estado_captura))
         else:
             self.pausado.set()
             self.btn_pausa.config(text="Retomar")

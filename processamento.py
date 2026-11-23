@@ -14,14 +14,14 @@ class Transcritor(threading.Thread):
 
     def run(self):
         if self.fala.api is None:
-            self.ui_q.put(("estado", "carregando", "Carregando modelo"))
+            self.ui_q.put(("modelo", "carregando", "Carregando modelo"))
             try:
                 self.fala.local.carregar()
             except Exception as e:
-                self.ui_q.put(("estado", "erro", "Erro no modelo"))
+                self.ui_q.put(("modelo", "erro", "Erro no modelo"))
                 self.ui_q.put(("detalhe", f"Não foi possível carregar o modelo: {str(e)[:200]}"))
         self.ui_q.put(("detalhe", "Pronto. Toque algum áudio no computador."))
-        self.ui_q.put(("estado", "ok", "Pronto"))
+        self.ui_q.put(("modelo", None, None))
 
         while not self.parar.is_set():
             try:

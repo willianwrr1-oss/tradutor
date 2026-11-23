@@ -92,6 +92,7 @@ class Captura(threading.Thread):
         self.cfg = cfg if cfg is not None else {}
         self.nivel = 0.0  # volume recente (RMS), lido pela interface
         self._trava = threading.Lock()
+        self._trava_streams = threading.Lock()
         self._niveis = {}   # índice do dispositivo -> (nível suavizado, instante)
         self._ativo = None  # índice do dispositivo cujo áudio segue para o reconhecimento
 
@@ -135,8 +136,10 @@ class Captura(threading.Thread):
                     self.audio_q.put_nowait(x)
             except queue.Full:
                 pass
-            except Exception:
-                pass
+            except Exception as e:
+                if not getattr(self, "_erro_cb", False):
+                    self._erro_cb = True
+                    registrar(f"erro ao processar o áudio de [{idx}]: {e!r}")
             return (None, pyaudio.paContinue)
         return cb
 
@@ -154,11 +157,34 @@ class Captura(threading.Thread):
             self.ui_q.put(("detalhe", f"Áudio detectado em: {nomes.get(melhor, melhor)}"))
             self.ui_q.put(("estado", "ok", "Capturando · " + nome_curto(nomes.get(melhor, ""))))
 
+    def _abrir(self, p, d, sessao, streams):
+        """Abre o loopback de um dispositivo e guarda o stream. Tudo vai para o captura.log."""
+        canais, taxa = int(d["maxInputChannels"]), int(d["defaultSampleRate"])
+        registrar(f"abrindo [{d['index']}] {d['name']}")
+        try:
+            s = p.open(format=pyaudio.paInt16, channels=canais, rate=taxa, input=True,
+                       input_device_index=d["index"], frames_per_buffer=2048,
+                       stream_callback=self._callback(d["index"], canais, taxa))
+        except Exception as e:
+            registrar(f"falha ao abrir {d['name']}: {e}")
+            return False
+        with self._trava_streams:
+            if sessao.is_set():  # a sessão terminou enquanto este abria
+                try:
+                    s.close()
+                except Exception:
+                    pass
+                return False
+            streams.append(s)
+        registrar(f"aberto [{d['index']}] {d['name']}")
+        return True
+
     def run(self):
         while not self.parar.is_set():
-            p = pyaudio.PyAudio()
-            streams = []
+            sessao = threading.Event()
+            streams, extra, p = [], None, None
             try:
+                p = pyaudio.PyAudio()
                 devs, aviso = self._dispositivos(p)
                 if aviso:
                     self.ui_q.put(("detalhe", aviso))
@@ -168,39 +194,44 @@ class Captura(threading.Thread):
                     padrao_idx = achar_loopback(p)["index"]
                 except Exception:
                     padrao_idx = devs[0]["index"]
+                devs.sort(key=lambda d: d["index"] != padrao_idx)  # a saída padrão vem primeiro
+                nomes = {d["index"]: d["name"] for d in devs}
                 registrar(f"modo={self._modo()}; saídas encontradas: " +
                           " | ".join(f"[{d['index']}] {d['name']} ({int(d['defaultSampleRate'])} Hz, "
                                      f"{int(d['maxInputChannels'])} canais)" for d in devs))
-                indices = [d["index"] for d in devs]
-                self._ativo = padrao_idx if padrao_idx in indices else indices[0]
                 self._niveis.clear()
-                nomes = {d["index"]: d["name"] for d in devs}
-                erros = []
-                for d in devs:
-                    try:
-                        streams.append(p.open(
-                            format=pyaudio.paInt16, channels=int(d["maxInputChannels"]),
-                            rate=int(d["defaultSampleRate"]), input=True, input_device_index=d["index"],
-                            frames_per_buffer=2048,
-                            stream_callback=self._callback(d["index"], int(d["maxInputChannels"]),
-                                                           int(d["defaultSampleRate"]))))
-                    except Exception as e:
-                        erros.append(f"{d['name']}: {e}")
-                        registrar(f"falha ao abrir {d['name']}: {e}")
-                if not streams:
-                    raise RuntimeError("Não foi possível abrir nenhuma saída de áudio. " + "; ".join(erros))
+
+                # Abre a primeira saída que funcionar; as outras abrem em segundo plano,
+                # para que uma saída problemática não trave a captura.
+                restantes = list(devs)
+                aberto = None
+                while restantes and aberto is None:
+                    d = restantes.pop(0)
+                    self._ativo = d["index"]
+                    if self._abrir(p, d, sessao, streams):
+                        aberto = d
+                if aberto is None:
+                    raise RuntimeError("Não foi possível abrir nenhuma saída de áudio (veja captura.log).")
+                if restantes:
+                    def abrir_resto(lista=list(restantes)):
+                        for d in lista:
+                            if sessao.is_set():
+                                break
+                            self._abrir(p, d, sessao, streams)
+                    extra = threading.Thread(target=abrir_resto, daemon=True)
+                    extra.start()
                 if len(devs) == 1:
-                    self.ui_q.put(("detalhe", f"Dispositivo de áudio: {devs[0]['name']}"))
+                    self.ui_q.put(("detalhe", f"Dispositivo de áudio: {aberto['name']}"))
                 else:
-                    self.ui_q.put(("detalhe", f"Monitorando {len(streams)} saídas de áudio; "
+                    self.ui_q.put(("detalhe", f"Monitorando {len(devs)} saídas de áudio; "
                                               "seguindo a que estiver tocando"))
-                self.ui_q.put(("estado", "ok", "Capturando · " + nome_curto(nomes[self._ativo])))
+                self.ui_q.put(("estado", "ok", "Capturando · " + nome_curto(aberto["name"])))
                 inicial = self._assinatura()
                 ultimo = ultimo_resumo = time.time()
                 mudancas = 0
                 while not self.parar.is_set():
                     time.sleep(0.25)
-                    if len(streams) > 1:
+                    if len(devs) > 1:
                         self._escolher_ativo(nomes)
                     agora = time.time()
                     if agora - ultimo_resumo >= 10:
@@ -230,13 +261,22 @@ class Captura(threading.Thread):
                 time.sleep(2)
             finally:
                 self.nivel = 0.0
-                for s in streams:
+                sessao.set()
+                if extra is not None:
+                    extra.join(timeout=3)
+                with self._trava_streams:
+                    abertos = list(streams)
+                for s in abertos:
                     try:
                         s.stop_stream()
                         s.close()
                     except Exception:
                         pass
-                p.terminate()
+                if p is not None and (extra is None or not extra.is_alive()):
+                    try:
+                        p.terminate()
+                    except Exception:
+                        pass
 
 
 class Segmentador(threading.Thread):
